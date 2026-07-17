@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Customer Segmentation — RFM Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: white;
+            padding: 30px 40px;
+            border-radius: 16px;
+            margin-bottom: 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 16px;
+        }
+        header h1 { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
+        header p { opacity: 0.85; font-size: 15px; }
+        .last-updated { font-size: 12px; opacity: 0.6; margin-top: 8px; }
+        
+        .locale-switcher {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(255,255,255,0.12);
+            padding: 6px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .locale-switcher select {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .locale-switcher select option {
+            background: #16213e;
+            color: white;
+        }
+        
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .kpi-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            text-align: center;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+        }
+        .kpi-card .label { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .kpi-card .sub { font-size: 13px; color: #666; margin-top: 2px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+        .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            transition: box-shadow 0.2s ease;
+        }
+        .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+        .card h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; color: #1a1a2e; }
+        .card.full { grid-column: 1 / -1; }
+        .card .chart-container { position: relative; height: 300px; width: 100%; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        th {
+            background: #f7f8fa;
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            border-bottom: 2px solid #e8e8e8;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        tr:hover td { background: #f8f9ff; }
+        .segment-badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .champions { background: #ffd700; color: #333; }
+        .loyal { background: #4caf50; color: white; }
+        .recent { background: #2196f3; color: white; }
+        .potential { background: #9c27b0; color: white; }
+        .big-spender { background: #ff9800; color: white; }
+        .promising { background: #00bcd4; color: white; }
+        .at-risk { background: #f44336; color: white; }
+        .at-risk-hv { background: #e91e63; color: white; }
+        .hibernating { background: #795548; color: white; }
+        .lost { background: #607d8b; color: white; }
+        .low-engagement { background: #ff5722; color: white; }
+        .regular-customer { background: #3f51b5; color: white; }
+        .table-scroll { max-height: 400px; overflow-y: auto; border-radius: 8px; }
+        
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 80px 20px;
+            color: #999;
+        }
+        .loading .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #0f3460;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading p { font-size: 16px; }
+        .info-tip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #ddd;
+            color: #666;
+            font-size: 10px;
+            font-weight: 700;
+            cursor: help;
+            margin-left: 4px;
+            vertical-align: middle;
+        }
+        
+        @media (max-width: 900px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+        @media (max-width: 600px) {
+            body { padding: 12px; }
+            header { padding: 20px; }
+            header h1 { font-size: 22px; }
+            .kpi-row { grid-template-columns: 1fr 1fr; }
+            .header-top { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <div>
+                    <h1>📊 Customer Segmentation — RFM Analysis</h1>
+                    <p>Recency · Frequency · Monetary analysis on 6,000 customers & 54K+ transactions</p>
+                </div>
+                <div class="locale-switcher">
+                    <span>🌍</span>
+                    <select id="localeSwitcher" onchange="onLocaleChange()" size="1" style="max-height:200px;">
+                        <option value="IN">🇮🇳 India — INR (₹)</option>
+                        <option value="US">🇺🇸 United States — USD ($)</option>
+                        <option value="GB">🇬🇧 UK — GBP (£)</option>
+                        <option value="EU">🇪🇺 Europe — EUR (€)</option>
+                        <option value="JP">🇯🇵 Japan — JPY (¥)</option>
+                        <option value="AU">🇦🇺 Australia — AUD (A$)</option>
+                        <option value="CA">🇨🇦 Canada — CAD (C$)</option>
+                        <option value="SG">🇸🇬 Singapore — SGD (S$)</option>
+                        <option value="CH">🇨🇭 Switzerland — CHF</option>
+                        <option value="AE">🇦🇪 UAE (Dubai) — AED</option>
+                        <option value="SA">🇸🇦 Saudi Arabia — SAR</option>
+                        <option value="CN">🇨🇳 China — CNY (¥)</option>
+                        <option value="KR">🇰🇷 South Korea — KRW (₩)</option>
+                        <option value="MY">🇲🇾 Malaysia — MYR (RM)</option>
+                        <option value="TH">🇹🇭 Thailand — THB (฿)</option>
+                        <option value="LK">🇱🇰 Sri Lanka — LKR (Rs)</option>
+                        <option value="PK">🇵🇰 Pakistan — PKR (Rs)</option>
+                        <option value="BD">🇧🇩 Bangladesh — BDT (৳)</option>
+                        <option value="NP">🇳🇵 Nepal — NPR (Rs)</option>
+                        <option value="MV">🇲🇻 Maldives — MVR (Rf)</option>
+                        <option value="ID">🇮🇩 Indonesia — IDR (Rp)</option>
+                        <option value="PH">🇵🇭 Philippines — PHP (₱)</option>
+                        <option value="ZA">🇿🇦 South Africa — ZAR (R)</option>
+                        <option value="BR">🇧🇷 Brazil — BRL (R$)</option>
+                        <option value="RU">🇷🇺 Russia — RUB (₽)</option>
+                        <option value="TR">🇹🇷 Turkey — TRY (₺)</option>
+                        <option value="KW">🇰🇼 Kuwait — KWD</option>
+                        <option value="OM">🇴🇲 Oman — OMR</option>
+                        <option value="QA">🇶🇦 Qatar — QAR</option>
+                        <option value="NG">🇳🇬 Nigeria — NGN (₦)</option>
+                        <option value="EG">🇪🇬 Egypt — EGP (E£)</option>
+                        <option value="KE">🇰🇪 Kenya — KES (KSh)</option>
+                        <option value="NZ">🇳🇿 New Zealand — NZD (NZ$)</option>
+                        <option value="HK">🇭🇰 Hong Kong — HKD (HK$)</option>
+                        <option value="TW">🇹🇼 Taiwan — TWD (NT$)</option>
+                    </select>
+                </div>
+            </div>
+            <div style="margin-top:16px;display:flex;gap:12px;flex-wrap:wrap;">
+                <a href="retailer.html" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);color:white;text-decoration:none;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">🏪 Retailer Portal</a>
+                <a href="admin.html" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.15);color:white;text-decoration:none;padding:10px 20px;border-radius:10px;font-size:14px;font-weight:600;transition:background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.25)'" onmouseout="this.style.background='rgba(255,255,255,0.15)'">🔧 Admin Portal</a>
+            </div>
+            <div class="last-updated" id="lastUpdated">Loading data...</div>
+        </header>
+
+        <div id="loadingState" class="loading">
+            <div class="spinner"></div>
+            <p>Loading customer data & generating insights...</p>
+        </div>
+
+        <div id="dashboardContent" style="display:none;">
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="label">💰 Total Revenue</div>
+                    <div class="value" id="kpiRevenue">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">👥 Total Customers</div>
+                    <div class="value" id="kpiCustomers">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">📦 Total Transactions</div>
+                    <div class="value" id="kpiTransactions">—</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="label">🎯 Revenue from Top 20%</div>
+                    <div class="value" id="kpiPareto">—</div>
+                    <div class="sub">of customers contribute this</div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="card">
+                    <h2>📈 Customer Segment Distribution <span class="info-tip" title="Shows how customers are distributed across different behavioral segments based on their RFM scores">?</span></h2>
+                    <div class="chart-container"><canvas id="segmentDonut"></canvas></div>
+                </div>
+                <div class="card">
+                    <h2>💵 Revenue by Segment</h2>
+                    <div class="chart-container"><canvas id="revenueBar"></canvas></div>
+                </div>
+            </div>
+
+            <div class="grid-3">
+                <div class="card">
+                    <h2>📊 RFM Score Distribution <span class="info-tip" title="R = Recency (how recently), F = Frequency (how often), M = Monetary (how much). Scores range 1 (lowest) to 5 (highest)">?</span></h2>
+                    <div class="chart-container"><canvas id="rfmScores"></canvas></div>
+                </div>
+                <div class="card">
+                    <h2>🏆 Pareto Analysis <span class="info-tip" title="The 80/20 rule: typically 20% of customers generate 80% of revenue">?</span></h2>
+                    <div class="chart-container"><canvas id="paretoChart"></canvas></div>
+                </div>
+                <div class="card">
+                    <h2>📅 Monthly Revenue Trends</h2>
+                    <div class="chart-container"><canvas id="monthlyTrend"></canvas></div>
+                </div>
+            </div>
+
+            <div class="card full">
+                <h2>📋 Segment Summary</h2>
+                <p style="font-size:13px;color:#888;margin-bottom:12px;">Detailed breakdown of each customer segment and their contribution to overall business performance.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Segment</th>
+                                <th>Customers</th>
+                                <th>% of Customers</th>
+                                <th>Total Revenue</th>
+                                <th>% of Revenue</th>
+                                <th>Avg Revenue</th>
+                                <th>Avg Frequency</th>
+                                <th>Avg Recency (days)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="segmentTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card full">
+                <h2>🏅 Top 20 Customers by Revenue</h2>
+                <p style="font-size:13px;color:#888;margin-bottom:12px;">Your highest-value customers ranked by total spend.</p>
+                <div class="table-scroll">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Rank</th>
+                                <th>Customer</th>
+                                <th>Revenue</th>
+                                <th>Segment</th>
+                                <th>Frequency</th>
+                                <th>Recency (days)</th>
+                                <th>R</th>
+                                <th>F</th>
+                                <th>M</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topCustomersBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // GLOBAL CURRENCY SYSTEM with REAL EXCHANGE RATES
+        // All source data is in INR. rate = multiply INR to get local.
+        // ============================================================
+        let currentLocale = localStorage.getItem('app_locale') || 'IN';
+        
+        const LOCALES = {
+            IN:  { code: 'en-IN', currency: 'INR', symbol: '₹',      rate: 1.0000,  flag: '🇮🇳', label: 'India' },
+            US:  { code: 'en-US', currency: 'USD', symbol: '$',      rate: 0.0120,  flag: '🇺🇸', label: 'United States' },
+            GB:  { code: 'en-GB', currency: 'GBP', symbol: '£',      rate: 0.0095,  flag: '🇬🇧', label: 'United Kingdom' },
+            EU:  { code: 'de-DE', currency: 'EUR', symbol: '€',      rate: 0.0111,  flag: '🇪🇺', label: 'European Union' },
+            JP:  { code: 'ja-JP', currency: 'JPY', symbol: '¥',      rate: 1.8000,  flag: '🇯🇵', label: 'Japan' },
+            AU:  { code: 'en-AU', currency: 'AUD', symbol: 'A$',     rate: 0.0182,  flag: '🇦🇺', label: 'Australia' },
+            CA:  { code: 'en-CA', currency: 'CAD', symbol: 'C$',     rate: 0.0164,  flag: '🇨🇦', label: 'Canada' },
+            SG:  { code: 'en-SG', currency: 'SGD', symbol: 'S$',     rate: 0.0161,  flag: '🇸🇬', label: 'Singapore' },
+            CH:  { code: 'de-CH', currency: 'CHF', symbol: 'CHF',    rate: 0.0106,  flag: '🇨🇭', label: 'Switzerland' },
+            AE:  { code: 'ar-AE', currency: 'AED', symbol: 'د.إ',    rate: 0.0442,  flag: '🇦🇪', label: 'UAE (Dubai)' },
+            SA:  { code: 'ar-SA', currency: 'SAR', symbol: '﷼',      rate: 0.0452,  flag: '🇸🇦', label: 'Saudi Arabia' },
+            CN:  { code: 'zh-CN', currency: 'CNY', symbol: '¥',      rate: 0.0870,  flag: '🇨🇳', label: 'China' },
+            KR:  { code: 'ko-KR', currency: 'KRW', symbol: '₩',      rate: 16.1300, flag: '🇰🇷', label: 'South Korea' },
+            MY:  { code: 'ms-MY', currency: 'MYR', symbol: 'RM',     rate: 0.0556,  flag: '🇲🇾', label: 'Malaysia' },
+            TH:  { code: 'th-TH', currency: 'THB', symbol: '฿',      rate: 0.4348,  flag: '🇹🇭', label: 'Thailand' },
+            LK:  { code: 'si-LK', currency: 'LKR', symbol: 'Rs',     rate: 3.7000,  flag: '🇱🇰', label: 'Sri Lanka' },
+            PK:  { code: 'ur-PK', currency: 'PKR', symbol: 'Rs',     rate: 3.3300,  flag: '🇵🇰', label: 'Pakistan' },
+            BD:  { code: 'bn-BD', currency: 'BDT', symbol: '৳',      rate: 1.3160,  flag: '🇧🇩', label: 'Bangladesh' },
+            NP:  { code: 'ne-NP', currency: 'NPR', symbol: 'Rs',     rate: 1.6000,  flag: '🇳🇵', label: 'Nepal' },
+            MV:  { code: 'dv-MV', currency: 'MVR', symbol: 'Rf',     rate: 0.1852,  flag: '🇲🇻', label: 'Maldives' },
+            ID:  { code: 'id-ID', currency: 'IDR', symbol: 'Rp',     rate: 188.6800,flag: '🇮🇩', label: 'Indonesia' },
+            PH:  { code: 'en-PH', currency: 'PHP', symbol: '₱',      rate: 0.6760,  flag: '🇵🇭', label: 'Philippines' },
+            ZA:  { code: 'en-ZA', currency: 'ZAR', symbol: 'R',      rate: 0.2174,  flag: '🇿🇦', label: 'South Africa' },
+            BR:  { code: 'pt-BR', currency: 'BRL', symbol: 'R$',     rate: 0.0606,  flag: '🇧🇷', label: 'Brazil' },
+            RU:  { code: 'ru-RU', currency: 'RUB', symbol: '₽',      rate: 1.0870,  flag: '🇷🇺', label: 'Russia' },
+            TR:  { code: 'tr-TR', currency: 'TRY', symbol: '₺',      rate: 0.3846,  flag: '🇹🇷', label: 'Turkey' },
+            KW:  { code: 'en-KW', currency: 'KWD', symbol: 'KD',     rate: 0.0037,  flag: '🇰🇼', label: 'Kuwait' },
+            OM:  { code: 'en-OM', currency: 'OMR', symbol: 'OMR',    rate: 0.0047,  flag: '🇴🇲', label: 'Oman' },
+            QA:  { code: 'ar-QA', currency: 'QAR', symbol: '﷼',      rate: 0.0439,  flag: '🇶🇦', label: 'Qatar' },
+            NG:  { code: 'en-NG', currency: 'NGN', symbol: '₦',      rate: 18.1800, flag: '🇳🇬', label: 'Nigeria' },
+            EG:  { code: 'ar-EG', currency: 'EGP', symbol: 'E£',     rate: 0.5882,  flag: '🇪🇬', label: 'Egypt' },
+            MA:  { code: 'ar-MA', currency: 'MAD', symbol: 'د.م.',   rate: 0.1205,  flag: '🇲🇦', label: 'Morocco' },
+            KE:  { code: 'en-KE', currency: 'KES', symbol: 'KSh',    rate: 1.5625,  flag: '🇰🇪', label: 'Kenya' },
+            NZ:  { code: 'en-NZ', currency: 'NZD', symbol: 'NZ$',    rate: 0.0196,  flag: '🇳🇿', label: 'New Zealand' },
+            HK:  { code: 'en-HK', currency: 'HKD', symbol: 'HK$',    rate: 0.0935,  flag: '🇭🇰', label: 'Hong Kong' },
+            TW:  { code: 'zh-TW', currency: 'TWD', symbol: 'NT$',    rate: 0.3846,  flag: '🇹🇼', label: 'Taiwan' },
+        };
+
+        function getLocale() { return LOCALES[currentLocale] || LOCALES.IN; }
+
+        function formatCurrency(amountINR) {
+            const l = getLocale();
+            // Convert from INR to local currency using exchange rate
+            const localAmount = amountINR * l.rate;
+            return l.symbol + ' ' + Number(localAmount).toLocaleString(l.code, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function formatNumber(n) {
+            return Number(n).toLocaleString(getLocale().code);
+        }
+
+function onLocaleChange() {
+            currentLocale = document.getElementById('localeSwitcher').value;
+            localStorage.setItem('app_locale', currentLocale);
+            // Re-render everything from cached data
+            const sd = window._segmentData, cd = window._customerData, pd = window._paretoData, md = window._monthlyData;
+            if (sd) {
+                renderKPIs(sd, cd, pd);
+                renderSegmentTable(sd);
+                renderRevenueBar(sd);
+                renderTopCustomers(cd);
+                renderParetoChart(pd);
+                renderMonthlyTrend(md);
+                updateLastUpdated();
+            }
+        }
+
+        // ============================================================
+        // CONSTANTS
+        // ============================================================
+        const SEGMENT_COLORS = {
+            'Champions': '#FFD700', 'Loyal Customers': '#4CAF50', 'Recent Customers': '#2196F3',
+            'Potential Loyalists': '#9C27B0', 'Big Spenders (At Risk)': '#FF9800', 'Promising': '#00BCD4',
+            'At Risk (High Value)': '#E91E63', 'At Risk': '#F44336', 'Hibernating (High Value)': '#795548',
+            'Lost': '#607D8B', 'Low Engagement': '#FF5722', 'Regular Customers': '#3F51B5'
+        };
+
+        function segmentClass(name) {
+            const map = { 'Champions': 'champions', 'Loyal Customers': 'loyal', 'Recent Customers': 'recent', 'Potential Loyalists': 'potential', 'Big Spenders (At Risk)': 'big-spender', 'Promising': 'promising', 'At Risk (High Value)': 'at-risk-hv', 'At Risk': 'at-risk', 'Hibernating (High Value)': 'hibernating', 'Lost': 'lost', 'Low Engagement': 'low-engagement', 'Regular Customers': 'regular-customer' };
+            return map[name] || 'needs-analysis';
+        }
+
+        function safeNumber(val, fb) { const n = parseFloat(val); return isNaN(n) ? (fb !== undefined ? fb : 0) : n; }
+
+        function updateLastUpdated() {
+            const now = new Date();
+            const l = getLocale();
+            document.getElementById('lastUpdated').textContent = 'Last updated: ' + now.toLocaleDateString(l.code, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+
+        let charts = {};
+        function destroyChart(name) { if (charts[name]) { try { charts[name].destroy(); } catch(e){} charts[name] = null; } }
+
+        const paretoPlugin = {
+            id: 'paretoThreshold',
+            beforeDraw: function(chart) {
+                const ctx = chart.ctx, xA = chart.scales.x, yA = chart.scales.y;
+                if (!xA || !yA || !chart.data._threshold) return;
+                const t = chart.data._threshold;
+                const x = xA.getPixelForValue(t.index), y0 = yA.getPixelForValue(0), y1 = yA.getPixelForValue(t.value);
+                ctx.save(); ctx.setLineDash([6,4]); ctx.strokeStyle = '#e74c3c'; ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+                ctx.fillStyle = '#e74c3c'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'left';
+                ctx.fillText(t.value.toFixed(1) + '% @ Top 20%', x + 4, y1 - 4);
+                ctx.restore();
+            }
+        };
+        Chart.register(paretoPlugin);
+
+        // ============================================================
+        // LOAD & RENDER
+        // ============================================================
+        async function loadAll() {
+            try {
+                document.getElementById('localeSwitcher').value = currentLocale;
+
+                const [sr, cr, pr, mr] = await Promise.all([
+                    fetch('powerbi_data/segment_summary.csv'),
+                    fetch('powerbi_data/customer_rfm.csv'),
+                    fetch('powerbi_data/pareto_analysis.csv'),
+                    fetch('powerbi_data/monthly_trends.csv')
+                ]);
+                if (!sr.ok || !cr.ok || !pr.ok || !mr.ok) throw new Error('CSV files missing in powerbi_data/ folder.');
+
+                const sd = Papa.parse(await sr.text(), { header: true, dynamicTyping: true }).data.filter(d => d.customer_segment);
+                const cd = Papa.parse(await cr.text(), { header: true, dynamicTyping: true }).data.filter(d => d.customer_id);
+                const pd = Papa.parse(await pr.text(), { header: true, dynamicTyping: true }).data.filter(d => d.customer_id);
+                const md = Papa.parse(await mr.text(), { header: true, dynamicTyping: true }).data.filter(d => d.year);
+                if (!sd.length) throw new Error('segment_summary.csv is empty.');
+
+                window._segmentData = sd; window._customerData = cd; window._paretoData = pd; window._monthlyData = md;
+
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('dashboardContent').style.display = 'block';
+                updateLastUpdated();
+
+                renderKPIs(sd, cd, pd);
+                renderSegmentDonut(sd);
+                renderRevenueBar(sd);
+                renderSegmentTable(sd);
+                renderTopCustomers(cd);
+                renderParetoChart(pd);
+                renderMonthlyTrend(md);
+                renderRfmScores(cd);
+            } catch (e) {
+                document.getElementById('loadingState').innerHTML =
+                    '<div style="color:#e74c3c;font-size:48px;margin-bottom:16px;">⚠️</div>' +
+                    '<p style="font-size:18px;font-weight:600;color:#333;">Failed to Load Dashboard</p>' +
+                    '<p style="color:#999;margin-top:8px;max-width:500px;">' + e.message + '</p>' +
+                    '<p style="color:#999;margin-top:8px;">Make sure CSV files exist in <code>powerbi_data/</code> and run from a local server.</p>';
+            }
+        }
+
+        function renderKPIs(sd, cd, pd) {
+            const totalRev = sd.reduce((s, r) => s + safeNumber(r.total_revenue), 0);
+            const totalCust = cd.length;
+            const totalTx = cd.reduce((s, r) => s + safeNumber(r.frequency), 0);
+            const top20Count = Math.max(1, Math.round(pd.length * 0.20));
+            const top20Rev = pd.slice(0, top20Count).reduce((s, r) => s + safeNumber(r.amount), 0);
+            const pct = totalRev > 0 ? (top20Rev / totalRev) * 100 : 0;
+            document.getElementById('kpiRevenue').textContent = formatCurrency(totalRev);
+            document.getElementById('kpiCustomers').textContent = formatNumber(totalCust);
+            document.getElementById('kpiTransactions').textContent = formatNumber(totalTx);
+            document.getElementById('kpiPareto').innerHTML = pct.toFixed(1) + '%';
+        }
+
+        function renderSegmentDonut(data) {
+            const canvas = document.getElementById('segmentDonut'); if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const labels = data.map(d => d.customer_segment);
+            const values = data.map(d => d.customer_count);
+            const colors = labels.map(l => SEGMENT_COLORS[l] || '#9E9E9E');
+            destroyChart('segmentDonut');
+            charts.segmentDonut = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 2, borderColor: '#fff' }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '55%',
+                    plugins: {
+                        legend: { position: 'right', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: function(ctx) { const t = ctx.dataset.data.reduce((a,b)=>a+b,0); const p = t > 0 ? ((ctx.parsed/t)*100).toFixed(1) : 0; return ctx.label + ': ' + formatNumber(ctx.parsed) + ' customers (' + p + '%)'; } } }
+                    }
+                }
+            });
+        }
+
+        function renderRevenueBar(data) {
+            const canvas = document.getElementById('revenueBar'); if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const sorted = [...data].sort((a, b) => b.total_revenue - a.total_revenue);
+            const labels = sorted.map(d => d.customer_segment);
+            const values = sorted.map(d => d.total_revenue);
+            const colors = labels.map(l => SEGMENT_COLORS[l] || '#9E9E9E');
+            destroyChart('revenueBar');
+            charts.revenueBar = new Chart(ctx, {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Revenue', data: values, backgroundColor: colors, borderRadius: 4 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return 'Revenue: ' + formatCurrency(ctx.parsed.x); } } } },
+                    scales: { x: { ticks: { callback: function(v) { const s = getLocale().symbol; return s + (v/1000).toFixed(0) + 'k'; } } }, y: { ticks: { font: { size: 10 } } } }
+                }
+            });
+        }
+
+        function renderSegmentTable(data) {
+            const body = document.getElementById('segmentTableBody'); if (!body) return;
+            const sorted = [...data].sort((a, b) => b.total_revenue - a.total_revenue);
+            const totalCust = data.reduce((s, r) => s + r.customer_count, 0);
+            const totalRev = data.reduce((s, r) => s + r.total_revenue, 0);
+            body.innerHTML = sorted.map(function(r) {
+                const cPct = totalCust > 0 ? (r.customer_count / totalCust) * 100 : 0;
+                const rPct = totalRev > 0 ? (r.total_revenue / totalRev) * 100 : 0;
+                return '<tr><td><span class="segment-badge ' + segmentClass(r.customer_segment) + '">' + r.customer_segment + '</span></td><td><strong>' + formatNumber(r.customer_count) + '</strong></td><td>' + cPct.toFixed(1) + '%</td><td><strong>' + formatCurrency(r.total_revenue) + '</strong></td><td>' + rPct.toFixed(1) + '%</td><td>' + formatCurrency(r.avg_revenue) + '</td><td>' + safeNumber(r.avg_frequency,0).toFixed(1) + '</td><td>' + safeNumber(r.avg_recency,0).toFixed(0) + '</td></tr>';
+            }).join('');
+        }
+
+        function renderTopCustomers(data) {
+            const body = document.getElementById('topCustomersBody'); if (!body) return;
+            const sorted = [...data].sort((a, b) => b.monetary_total - a.monetary_total).slice(0, 20);
+            body.innerHTML = sorted.map(function(r, i) {
+                return '<tr><td>#' + (i+1) + '</td><td>' + (r.customer_name || r.customer_id) + '</td><td><strong>' + formatCurrency(r.monetary_total) + '</strong></td><td><span class="segment-badge ' + segmentClass(r.customer_segment) + '">' + r.customer_segment + '</span></td><td>' + r.frequency + '</td><td>' + r.recency_days + '</td><td>' + r.r_score + '</td><td>' + r.f_score + '</td><td>' + r.m_score + '</td></tr>';
+            }).join('');
+        }
+
+        function renderParetoChart(data) {
+            const canvas = document.getElementById('paretoChart'); if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const labels = data.map(d => '#' + d.revenue_rank);
+            const cumulative = data.map(d => d.cumulative_pct);
+            const idx = Math.max(0, Math.round(labels.length * 0.20) - 1);
+            destroyChart('pareto');
+            charts.pareto = new Chart(ctx, {
+                type: 'line',
+                data: { labels, _threshold: { index: idx, value: cumulative[idx] || 0 }, datasets: [{ label: 'Cumulative Revenue %', data: cumulative, borderColor: '#0f3460', backgroundColor: 'rgba(15,52,96,0.08)', fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { callbacks: { label: function(ctx) { return 'Cumulative: ' + ctx.parsed.y.toFixed(1) + '%'; } } } }, scales: { x: { display: false }, y: { min: 0, max: 100, ticks: { callback: function(v) { return v + '%'; } } } }, elements: { point: { radius: 0 } } }
+            });
+        }
+
+        function renderMonthlyTrend(data) {
+            const canvas = document.getElementById('monthlyTrend'); if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const sorted = [...data].sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
+            const labels = sorted.map(d => d.month_name + ' ' + d.year);
+            const revenue = sorted.map(d => d.total_revenue);
+            const customers = sorted.map(d => d.active_customers);
+            destroyChart('monthly');
+            charts.monthly = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets: [
+                    { label: 'Revenue', data: revenue, borderColor: '#0f3460', backgroundColor: 'rgba(15,52,96,0.06)', fill: true, tension: 0.3, pointRadius: 2, yAxisID: 'y' },
+                    { label: 'Active Customers', data: customers, borderColor: '#e67e22', backgroundColor: 'rgba(230,126,34,0.04)', fill: false, tension: 0.3, pointRadius: 2, borderDash: [4,3], yAxisID: 'y1' }
+                ] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } },
+                    scales: { x: { ticks: { font: { size: 9 }, maxTicksLimit: 12 } }, y: { position: 'left', ticks: { callback: function(v) { const s = getLocale().symbol; return s + (v/1000).toFixed(0) + 'k'; } } }, y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { callback: function(v) { return v.toFixed(0); } } } }
+                }
+            });
+        }
+
+        function renderRfmScores(data) {
+            const canvas = document.getElementById('rfmScores'); if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const r = [0,0,0,0,0], f = [0,0,0,0,0], m = [0,0,0,0,0];
+            data.forEach(d => { if (d.r_score >= 1 && d.r_score <= 5) r[d.r_score-1]++; if (d.f_score >= 1 && d.f_score <= 5) f[d.f_score-1]++; if (d.m_score >= 1 && d.m_score <= 5) m[d.m_score-1]++; });
+            destroyChart('rfmScores');
+            charts.rfmScores = new Chart(ctx, {
+                type: 'bar',
+                data: { labels: ['1 (Low)', '2', '3', '4', '5 (High)'], datasets: [
+                    { label: 'Recency', data: r, backgroundColor: 'rgba(15,52,96,0.75)', borderRadius: 3 },
+                    { label: 'Frequency', data: f, backgroundColor: 'rgba(46,134,193,0.75)', borderRadius: 3 },
+                    { label: 'Monetary', data: m, backgroundColor: 'rgba(230,126,34,0.75)', borderRadius: 3 }
+                ] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { x: { ticks: { font: { size: 10 } } }, y: { beginAtZero: true, ticks: { font: { size: 10 } } } } }
+            });
+        }
+
+        loadAll();
+    </script>
+</body>
+</html>

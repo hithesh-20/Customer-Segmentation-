@@ -1,0 +1,5 @@
+Total Transactions: 54728
+Total Customers: 6000
+Total Revenue: $1,110,972.67
+Revenue from Top 20% Customers: $756,180.56
+Percentage from Top 20%: 68.1%
